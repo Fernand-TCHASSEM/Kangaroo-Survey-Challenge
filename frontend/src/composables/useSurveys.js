@@ -19,12 +19,17 @@ export function useSurveys() {
   const surveysLoading = ref(false)
   const surveysError = ref(null)
 
-  async function fetchSurveys() {
+  async function fetchSurveys(search) {
     surveysLoading.value = true
     surveysError.value = null
 
+    const url = new URL('/api/list.json', API_BASE)
+    if (search) {
+      url.searchParams.set('q', search)
+    }
+
     try {
-      surveys.value = await fetchJson(`${API_BASE}/api/list.json`)
+      surveys.value = await fetchJson(url)
     } catch (error) {
       surveysError.value = error
     } finally {
