@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useSurveys } from './composables/useSurveys'
 import SurveyList from './components/SurveyList.vue'
 import SurveyDetail from './components/SurveyDetail.vue'
@@ -15,14 +15,42 @@ const {
   fetchResults,
 } = useSurveys()
 
-const selectedCode = ref(null)
+function codeFromUrl() {
+  return new URLSearchParams(window.location.search).get('code')
+}
 
+const selectedCode = ref(codeFromUrl())
+
+// Selecting a survey pushes ?code=XX1 to the URL so it's bookmarkable/shareable
+// and works with the browser's back/forward buttons (see handlePopState below).
 function selectSurvey(code) {
   selectedCode.value = code
   fetchResults(code)
+
+  const url = new URL(window.location.href)
+  url.searchParams.set('code', code)
+  window.history.pushState({ code }, '', url)
 }
 
-onMounted(fetchSurveys)
+function handlePopState() {
+  const code = codeFromUrl()
+  selectedCode.value = code
+  if (code) {
+    fetchResults(code)
+  }
+}
+
+onMounted(() => {
+  fetchSurveys()
+  if (selectedCode.value) {
+    fetchResults(selectedCode.value)
+  }
+  window.addEventListener('popstate', handlePopState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopState)
+})
 </script>
 
 <template>
