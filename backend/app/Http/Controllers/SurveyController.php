@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\SurveyAggregationService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class SurveyController extends Controller
 {
@@ -11,9 +12,9 @@ class SurveyController extends Controller
     {
     }
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json($this->surveys->list());
+        return response()->json($this->surveys->list($request->query('q')));
     }
 
     public function show(string $code): JsonResponse
