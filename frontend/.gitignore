@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Local env values (proxy/HMR host, API base) — commit .env.example instead
+.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

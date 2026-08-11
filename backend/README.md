@@ -1,58 +1,99 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Kangaroo Survey Challenge — Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel API that aggregates in-store survey answers stored as JSON files.
+Surveys are grouped by a `code` (one code per store); each question is
+aggregated across every file sharing that code, using a strategy class picked
+per question type.
 
-## About Laravel
+## Requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.4+ with the extensions Laravel needs (mbstring, zip, intl, pdo, ...)
+- Composer 2
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Running the backend
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The API is then available at `http://localhost:8000/api/...`.
 
-## Contributing
+A `Dockerfile` (Apache + PHP 8.4) is also included for containerized setups;
+mount the project into `/var/www/html` and run `composer install` inside the
+container the first time.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Where the data lives
 
-## Code of Conduct
+The 15 survey JSON files live at `storage/app/data/` (`1.json` ... `15.json`)
+and are committed to the repo — they're the persistence layer for this app,
+not disposable runtime data.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+They're read through a dedicated `surveys` filesystem disk
+(`config/filesystems.php`, rooted at `storage_path('app/data')`) rather than
+the default `local` disk, whose root is `storage/app/private` as of
+Laravel 11+. The disk name itself is bound via `config/surveys.php`
+(`config('surveys.disk')`), so tests can swap in a fake/fixtures disk without
+touching the repository class.
 
-## Security Vulnerabilities
+`App\Repositories\SurveyRepository` is the only class that knows about this
+disk. It loads and decodes the JSON files and groups them by `code`;
+everything above it depends on the repository, never on the filesystem
+directly.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## API endpoints
 
-## License
+- `GET /api/list.json` → `[{ "code": "XX1", "name": "Paris" }, ...]`
+- `GET /api/{code}.json` → `[{ "type", "label", "result" }, ...]` aggregated
+  results for that code, or `404` for an unknown code.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Design notes: aggregation via the Strategy pattern
+
+The core requirement is that adding a new question type never requires
+touching the controller. This is done with one class per question type plus a
+registry that picks the right one:
+
+```
+app/Aggregation/
+  AggregatorInterface.php   # supports(string $type): bool; aggregate(array $answers, ?array $options): mixed
+  QcmAggregator.php         # counts how many files answered `true` per option
+  NumericAggregator.php     # averages the numeric answers
+  DateAggregator.php        # bonus: proves a new type needs no other changes
+  AggregatorRegistry.php    # returns the aggregator whose supports() matches
+```
+
+`App\Services\SurveyAggregationService` orchestrates one code: it asks the
+repository for the surveys sharing that code, then for each question asks the
+registry for the right aggregator and calls `aggregate()` on the answers
+collected across all files. `App\Http\Controllers\SurveyController` only
+calls the service and returns JSON — it never branches on question type.
+
+The aggregator list is bound once, in `App\Providers\AppServiceProvider`:
+
+```php
+$this->app->singleton(AggregatorRegistry::class, fn () => new AggregatorRegistry([
+    new QcmAggregator(),
+    new NumericAggregator(),
+    new DateAggregator(),
+]));
+```
+
+**To add a new question type:** create a class implementing
+`AggregatorInterface`, add it to that array. Nothing else changes — not the
+controller, not the service, not the registry's logic.
+
+## Running the tests
+
+```bash
+php artisan test
+```
+
+- `tests/Unit/Aggregation/` — one test class per aggregator, verified against
+  the real XX1 data (files 1, 2, 12, 13, 14: qcm counts and the 697.2 numeric
+  average), plus the registry's dispatch/unknown-type behavior.
+- `tests/Unit/Repositories/` — `SurveyRepository` against a faked disk.
+- `tests/Unit/Services/` — `SurveyAggregationService` orchestration.
+- `tests/Feature/SurveyControllerTest.php` — `GET /api/list.json`,
+  `GET /api/XX1.json` (200 + shape), and an unknown code (404).
