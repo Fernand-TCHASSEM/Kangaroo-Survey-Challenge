@@ -43,10 +43,23 @@ final class SurveyAggregationService
     }
 
     /**
-     * @return array<int, array{code: string, name: string}>
+     * @return array<int, array{code: string, name: string}> entries whose name
+     *   or code contains $search (case-insensitive), or all of them if empty
      */
-    public function list(): array
+    public function list(?string $search = null): array
     {
-        return $this->surveys->codes();
+        $codes = $this->surveys->codes();
+
+        if ($search === null || $search === '') {
+            return $codes;
+        }
+
+        $term = mb_strtolower($search);
+
+        return array_values(array_filter(
+            $codes,
+            fn (array $entry) => str_contains(mb_strtolower($entry['name']), $term)
+                || str_contains(mb_strtolower($entry['code']), $term),
+        ));
     }
 }

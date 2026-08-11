@@ -1,28 +1,23 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps({
   surveys: { type: Array, required: true },
   loading: { type: Boolean, default: false },
   error: { type: Object, default: null },
   selectedCode: { type: String, default: null },
+  initialSearch: { type: String, default: '' },
 })
 
-defineEmits(['select'])
+const emit = defineEmits(['select', 'search'])
 
-const search = ref('')
+const search = ref(props.initialSearch)
+let debounceTimer = null
 
-const filteredSurveys = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return props.surveys
-  }
-
-  return props.surveys.filter(
-    (survey) =>
-      survey.name.toLowerCase().includes(term) || survey.code.toLowerCase().includes(term),
-  )
+// Debounced so the backend isn't hit on every keystroke.
+watch(search, (term) => {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => emit('search', term.trim()), 300)
 })
 </script>
 
@@ -37,10 +32,10 @@ const filteredSurveys = computed(() => {
 
     <p v-if="loading">Loading surveys…</p>
     <p v-else-if="error">Could not load surveys: {{ error.message }}</p>
-    <p v-else-if="filteredSurveys.length === 0">No survey matches “{{ search }}”.</p>
+    <p v-else-if="surveys.length === 0">No survey matches “{{ search }}”.</p>
 
     <ul v-else class="survey-list">
-      <li v-for="survey in filteredSurveys" :key="survey.code">
+      <li v-for="survey in surveys" :key="survey.code">
         <button
           type="button"
           :class="{ active: survey.code === selectedCode }"

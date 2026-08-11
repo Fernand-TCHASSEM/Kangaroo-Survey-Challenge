@@ -20,10 +20,14 @@ class SurveyAggregationServiceTest extends TestCase
         );
     }
 
-    private function survey(array $qcmAnswer, int $numericAnswer): array
-    {
+    private function survey(
+        array $qcmAnswer,
+        int $numericAnswer,
+        string $name = 'Paris',
+        string $code = 'XX1',
+    ): array {
         return [
-            'survey' => ['name' => 'Paris', 'code' => 'XX1'],
+            'survey' => ['name' => $name, 'code' => $code],
             'questions' => [
                 [
                     'type' => 'qcm',
@@ -68,5 +72,31 @@ class SurveyAggregationServiceTest extends TestCase
         Storage::disk('surveys')->put('1.json', json_encode($this->survey([true, false], 10)));
 
         $this->assertSame([['code' => 'XX1', 'name' => 'Paris']], $this->service()->list());
+    }
+
+    public function test_list_filters_by_name_or_code_case_insensitively(): void
+    {
+        Storage::fake('surveys');
+        Storage::disk('surveys')->put('1.json', json_encode($this->survey([true, false], 10, 'Paris', 'XX1')));
+        Storage::disk('surveys')->put('2.json', json_encode($this->survey([true, false], 10, 'Melun', 'XX3')));
+
+        $this->assertSame(
+            [['code' => 'XX1', 'name' => 'Paris']],
+            $this->service()->list('paris'),
+        );
+        $this->assertSame(
+            [['code' => 'XX3', 'name' => 'Melun']],
+            $this->service()->list('xx3'),
+        );
+        $this->assertSame([], $this->service()->list('nowhere'));
+    }
+
+    public function test_list_returns_everything_for_an_empty_search(): void
+    {
+        Storage::fake('surveys');
+        Storage::disk('surveys')->put('1.json', json_encode($this->survey([true, false], 10, 'Paris', 'XX1')));
+
+        $this->assertSame([['code' => 'XX1', 'name' => 'Paris']], $this->service()->list(''));
+        $this->assertSame([['code' => 'XX1', 'name' => 'Paris']], $this->service()->list(null));
     }
 }

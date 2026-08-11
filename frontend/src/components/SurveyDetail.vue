@@ -36,7 +36,7 @@ function maxCount(result) {
       </ul>
 
       <p v-else-if="question.type === 'numeric'">
-        Average: <strong>{{ question.result }}</strong>
+        Average: <strong>{{ question.result.toFixed(2) }}</strong>
       </p>
 
       <pre v-else>{{ question.result }}</pre>

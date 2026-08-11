@@ -16,6 +16,22 @@ class SurveyControllerTest extends TestCase
         $response->assertJsonFragment(['code' => 'XX3', 'name' => 'Melun']);
     }
 
+    public function test_list_endpoint_filters_by_query_param(): void
+    {
+        $response = $this->getJson('/api/list.json?q=melun');
+
+        $response->assertOk();
+        $response->assertExactJson([['code' => 'XX3', 'name' => 'Melun']]);
+    }
+
+    public function test_list_endpoint_returns_empty_array_for_no_match(): void
+    {
+        $response = $this->getJson('/api/list.json?q=nowhere');
+
+        $response->assertOk();
+        $response->assertExactJson([]);
+    }
+
     public function test_show_endpoint_returns_aggregated_results_for_a_known_code(): void
     {
         $response = $this->getJson('/api/XX1.json');

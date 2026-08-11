@@ -2,10 +2,7 @@
 
 FROM php:8.4-apache
 
-# set main params
 ENV APP_HOME=/var/www/html
-ARG HOST_UID=1000
-ARG HOST_GID=1000
 ENV USERNAME=www-data
 ENV TZ='America/Toronto'
 
@@ -22,13 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2-dev \
     libzip-dev \
     libicu-dev \
-    default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- PHP extensions Laravel typically needs ----
+# ---- PHP extensions ----
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" \
-        pdo_mysql \
         mbstring \
         exif \
         pcntl \
@@ -38,48 +33,46 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
         intl \
         opcache
 
-# Redis extension (optional but common with Laravel queues/cache)
-# RUN pecl install redis && docker-php-ext-enable redis
-
 # ---- Apache config ----
 RUN a2enmod rewrite headers
 
-# Point Apache's document root at Laravel's public/ directory
 ENV APACHE_DOCUMENT_ROOT=${APP_HOME}/public
 RUN sed -ri -e "s!/var/www/html!${APACHE_DOCUMENT_ROOT}!g" /etc/apache2/sites-available/*.conf \
     && sed -ri -e "s!/var/www/!${APACHE_DOCUMENT_ROOT}!g" /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
-# Allow .htaccess overrides (needed for Laravel's front-controller routing)
 RUN printf '<Directory %s>\n\tOptions Indexes FollowSymLinks\n\tAllowOverride All\n\tRequire all granted\n</Directory>\n' "${APACHE_DOCUMENT_ROOT}" \
     > /etc/apache2/conf-available/laravel.conf \
     && a2enconf laravel
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # ---- Composer ----
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR $APP_HOME
 
-# ---- Application code ----
-# Copy composer files first for better layer caching
-# COPY composer.json composer.lock* ./
-# RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
+# ---- Application code + dependencies (ACTIVÉ pour Render) ----
+# 1. Copier d'abord les fichiers composer pour profiter du cache de couche
+COPY composer.json composer.lock* ./
 
-# COPY . .
+# 2. Installer les dépendances de production (sans les scripts qui ont besoin du code complet)
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction
 
-# RUN composer dump-autoload --optimize \
-#     && php artisan config:clear || true
+# 3. Copier tout le reste du code
+COPY . .
 
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# 4. Générer l'autoloader optimisé maintenant que tout le code est là
+RUN composer dump-autoload --optimize --no-dev
 
-# Fix permissions for www-data user and change owner to www-data
-RUN mkdir -p /home/$USERNAME && chown $USERNAME:$USERNAME /home/$USERNAME \
-  && usermod -o -u $HOST_UID $USERNAME -d /home/$USERNAME \
-  && groupmod -o -g $HOST_GID $USERNAME \
-  && chown -R ${USERNAME}:${USERNAME} $APP_HOME \
-  && chmod -R 755 $APP_HOME
+# ---- Permissions (Render) ----
+# storage/ et bootstrap/cache doivent être accessibles en écriture par Apache (www-data)
+RUN chown -R ${USERNAME}:${USERNAME} ${APP_HOME} \
+    && chmod -R 755 ${APP_HOME} \
+    && chmod -R 775 ${APP_HOME}/storage ${APP_HOME}/bootstrap/cache
 
 USER ${USERNAME}
 
-# EXPOSE 80
+# Apache écoute sur 80 dans le conteneur ; Render mappe automatiquement
+EXPOSE 80
 
 CMD ["apache2-foreground"]
